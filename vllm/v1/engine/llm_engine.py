@@ -21,7 +21,6 @@ from vllm.v1.engine.core_client import EngineCoreClient
 from vllm.v1.engine.detokenizer import Detokenizer
 from vllm.v1.engine.processor import Processor
 from vllm.v1.executor.abstract import Executor
-from vllm.v1.executor.ray_utils import initialize_ray_cluster
 
 logger = init_logger(__name__)
 
@@ -73,11 +72,11 @@ class LLMEngine:
 
         # EngineCore (gets EngineCoreRequests and gives EngineCoreOutputs)
         self.engine_core = EngineCoreClient.make_client(
-            vllm_config,
-            executor_class,
-            usage_context,
             multiprocess_mode=multiprocess_mode,
             asyncio_mode=False,
+            vllm_config=vllm_config,
+            executor_class=executor_class,
+            log_stats=False,
         )
 
     @classmethod
@@ -112,7 +111,6 @@ class LLMEngine:
         distributed_executor_backend = (
             vllm_config.parallel_config.distributed_executor_backend)
         if distributed_executor_backend == "ray":
-            initialize_ray_cluster(vllm_config.parallel_config)
             from vllm.v1.executor.ray_executor import RayExecutor
             executor_class = RayExecutor
         elif distributed_executor_backend == "mp":
@@ -154,15 +152,17 @@ class LLMEngine:
     ) -> None:
 
         # 1) Process raw inputs into the request.
-        detokenizer_req, engine_core_req = self.processor.process_inputs(
-            request_id, prompt, params, arrival_time, lora_request,
-            trace_headers, prompt_adapter_request, priority)
+        request = self.processor.process_inputs(request_id, prompt, params,
+                                                arrival_time, lora_request,
+                                                trace_headers,
+                                                prompt_adapter_request,
+                                                priority)
 
         # 2) Add the request to Detokenizer.
-        self.detokenizer.add_request(detokenizer_req)
+        self.detokenizer.add_request(request)
 
         # 3) Add the request to EngineCore.
-        self.engine_core.add_request(engine_core_req)
+        self.engine_core.add_request(request)
 
     def step(self) -> List[RequestOutput]:
 
